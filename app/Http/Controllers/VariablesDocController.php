@@ -28,16 +28,13 @@ class VariablesDocController extends Controller
             $phpWord = IOFactory::load($filePath);
             $variables = [];
 
-            // Duyệt qua các section
             foreach ($phpWord->getSections() as $section) {
                 foreach ($section->getElements() as $element) {
                     if ($element instanceof Table) {
-                        // Xử lý bảng
                         foreach ($element->getRows() as $row) {
                             foreach ($row->getCells() as $cell) {
                                 foreach ($cell->getElements() as $cellElement) {
                                     if ($cellElement instanceof TextRun) {
-                                        // Xử lý TextRun trong ô bảng
                                         foreach ($cellElement->getElements() as $subElement) {
                                             if ($subElement instanceof TextElement) {
                                                 $text = $subElement->getText();
@@ -50,7 +47,6 @@ class VariablesDocController extends Controller
                                             }
                                         }
                                     } elseif ($cellElement instanceof TextElement) {
-                                        // Xử lý Text trong ô bảng
                                         $text = $cellElement->getText();
                                         if ($text && is_string($text)) {
                                             preg_match_all('/\{\{([^{}]+)\}\}/', $text, $matches);
@@ -63,7 +59,6 @@ class VariablesDocController extends Controller
                             }
                         }
                     } elseif ($element instanceof TextRun) {
-                        // Xử lý TextRun ngoài bảng
                         foreach ($element->getElements() as $subElement) {
                             if ($subElement instanceof TextElement) {
                                 $text = $subElement->getText();
@@ -76,7 +71,6 @@ class VariablesDocController extends Controller
                             }
                         }
                     } elseif ($element instanceof TextElement) {
-                        // Xử lý Text ngoài bảng
                         $text = $element->getText();
                         if ($text && is_string($text)) {
                             preg_match_all('/\{\{([^{}]+)\}\}/', $text, $matches);
@@ -88,19 +82,17 @@ class VariablesDocController extends Controller
                 }
             }
 
-            // Loại bỏ biến trùng lặp
             $variables = array_unique(array_map('trim', $variables));
 
-            // Lưu variables vào session
             $docVariables = session('doc_variables', []);
             $docVariables[$docIndex] = [
                 'doc_name' => $docFiles[$docIndex]['name'],
                 'variables' => $variables,
+                'primary_key' => null, // Khởi tạo khóa chính là null
             ];
             session(['doc_variables' => $docVariables]);
 
             return redirect()->back()->with('success', 'Đã lấy danh sách biến của file "' . $docFiles[$docIndex]['name'] . '" thành công.');
-
         } catch (\Exception $e) {
             Log::error('Lỗi khi đọc biến: ' . $e->getMessage());
             return redirect()->route('file.index')->with('error', 'Không thể đọc biến: ' . $e->getMessage());
@@ -110,11 +102,23 @@ class VariablesDocController extends Controller
     public function removeVariables($docIndex)
     {
         $docVariables = session('doc_variables', []);
+        $mappings = session('mappings', []);
 
         if (isset($docVariables[$docIndex])) {
+            // Xóa các mapping liên quan đến doc này
+            $mappings = array_filter($mappings, fn($mapping) => $mapping['doc_index'] != $docIndex);
+            session(['mappings' => $mappings]);
+
+            // Xóa danh sách biến và khóa chính
             unset($docVariables[$docIndex]);
             session(['doc_variables' => $docVariables]);
-            return redirect()->back()->with('success', 'Đã xóa danh sách biến của file.');
+
+            // Xóa danh sách file Doc đã tạo (nếu có)
+            $generatedDocFiles = session('generated_doc_files', []);
+            unset($generatedDocFiles[$docIndex]);
+            session(['generated_doc_files' => $generatedDocFiles]);
+
+            return redirect()->back()->with('success', 'Đã xóa danh sách biến và khóa chính của file.');
         }
 
         return redirect()->back()->with('error', 'Danh sách biến không tồn tại.');
