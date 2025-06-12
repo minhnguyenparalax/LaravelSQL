@@ -54,17 +54,12 @@ class ExcelController extends Controller
         }
     }
 
-    public function removeExcel(Request $request)
+    public function removeExcel($fileIndex)
     {
-        $request->validate([
-            'file_index' => 'required|integer|min:0',
-        ]);
-
-        $fileIndex = $request->input('file_index');
         $excelFiles = session('excel_files', []);
 
         if (!isset($excelFiles[$fileIndex])) {
-            return back()->with('error', 'File không tồn tại trong danh sách.');
+            return redirect()->route('file.index')->with('error', 'File không tồn tại trong danh sách.');
         }
 
         $filePath = $excelFiles[$fileIndex]['path'];
@@ -102,18 +97,47 @@ class ExcelController extends Controller
             $highestColumn = $worksheet->getHighestColumn();
             $highestColumnIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($highestColumn);
 
+            // Lấy thông tin merged cells
+            $mergeCells = $worksheet->getMergeCells();
+            $mergeInfo = [];
+            foreach ($mergeCells as $mergeRange) {
+                [$startCell, $endCell] = explode(':', $mergeRange);
+                [$startCol, $startRow] = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::coordinateFromString($startCell);
+                [$endCol, $endRow] = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::coordinateFromString($endCell);
+                $startColIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($startCol);
+                $endColIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($endCol);
+                $colspan = $endColIndex - $startColIndex + 1;
+                $mergeInfo[$startRow][$startColIndex] = $colspan;
+            }
+
             $data = [];
             $statusColumnIndex = null;
 
+            // Đọc tất cả ô từ sheet
             for ($row = 1; $row <= $highestRow; $row++) {
                 $rowData = [];
                 for ($col = 1; $col <= $highestColumnIndex; $col++) {
+                    // Kiểm tra ô có thuộc vùng gộp không
+                    $colspan = isset($mergeInfo[$row][$col]) ? $mergeInfo[$row][$col] : 1;
                     $cell = $worksheet->getCellByColumnAndRow($col, $row);
                     $value = $cell->getCalculatedValue();
-                    $rowData[] = $value;
+                    $value = is_null($value) ? '' : $value; // Chuyển null thành chuỗi rỗng
+                    $rowData[$col - 1] = [
+                        'value' => $value,
+                        'colspan' => $colspan,
+                    ];
 
+                    // Tìm cột Status ở hàng đầu tiên
                     if ($row === 1 && strtolower($value) === 'status') {
                         $statusColumnIndex = $col - 1;
+                    }
+
+                    // Bỏ qua các cột đã gộp
+                    if ($colspan > 1) {
+                        for ($i = 1; $i < $colspan; $i++) {
+                            $rowData[$col - 1 + $i] = ['value' => '', 'colspan' => 0]; // Đánh dấu cột gộp phụ
+                        }
+                        $col += $colspan - 1;
                     }
                 }
                 $data[] = $rowData;
@@ -123,10 +147,56 @@ class ExcelController extends Controller
                 return redirect()->route('file.index')->with('error', 'Không tìm thấy dữ liệu trong sheet.');
             }
 
+            // Tìm hàng cuối cùng có giá trị
+            $lastNonEmptyRowIndex = 0;
+            foreach ($data as $rowIndex => $rowData) {
+                foreach ($rowData as $cell) {
+                    if ($cell['value'] !== '' && trim($cell['value']) !== '') {
+                        $lastNonEmptyRowIndex = max($lastNonEmptyRowIndex, $rowIndex);
+                    }
+                }
+            }
+
+            // Lọc bỏ các cột hoàn toàn trống
+            $nonEmptyColumns = [];
+            for ($col = 0; $col < $highestColumnIndex; $col++) {
+                $hasData = false;
+                foreach ($data as $rowIndex => $rowData) {
+                    if ($rowIndex > $lastNonEmptyRowIndex) {
+                        continue; // Bỏ qua các hàng sau hàng cuối cùng có giá trị
+                    }
+                    if (isset($rowData[$col]) && $rowData[$col]['value'] !== '' && $rowData[$col]['colspan'] !== 0) {
+                        $hasData = true;
+                        break;
+                    }
+                }
+                if ($hasData) {
+                    $nonEmptyColumns[] = $col;
+                }
+            }
+
+            // Tạo dữ liệu mới chỉ chứa các cột không trống và các hàng đến lastNonEmptyRowIndex
+            $filteredData = [];
+            foreach ($data as $rowIndex => $rowData) {
+                if ($rowIndex > $lastNonEmptyRowIndex) {
+                    continue; // Bỏ qua các hàng sau hàng cuối cùng có giá trị
+                }
+                $filteredRow = [];
+                foreach ($nonEmptyColumns as $col) {
+                    $filteredRow[] = $rowData[$col] ?? ['value' => '', 'colspan' => 1];
+                }
+                $filteredData[] = $filteredRow;
+            }
+
+            // Cập nhật statusColumnIndex cho dữ liệu đã lọc
+            if ($statusColumnIndex !== null) {
+                $statusColumnIndex = array_search($statusColumnIndex, $nonEmptyColumns);
+            }
+
             return view('file_reader', [
                 'excelFiles' => $excelFiles,
                 'docFiles' => session('doc_files', []),
-                'data' => $data,
+                'data' => $filteredData,
                 'statusColumnIndex' => $statusColumnIndex,
                 'currentFileIndex' => $fileIndex,
                 'currentSheetIndex' => $sheetIndex,
