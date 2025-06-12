@@ -58,10 +58,10 @@
         .excel-item {
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
+            align-items: center;
             gap: 1.5rem;
         }
-        .eye-btn, .map-btn {
+        .eye-btn, .map-btn, .toggle-btn {
             font-size: 1.3rem;
             padding: 0.4rem;
             border: none;
@@ -78,6 +78,9 @@
         .map-btn {
             color: #198754;
         }
+        .toggle-btn {
+            color: #6c757d;
+        }
         .eye-btn:hover {
             transform: scale(1.1);
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
@@ -89,6 +92,12 @@
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
             background-color: #d4edda;
             color: #146c43;
+        }
+        .toggle-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            background-color: #e2e6ea;
+            color: #495057;
         }
         .sheet-actions, .doc-actions {
             display: flex;
@@ -108,13 +117,13 @@
         }
         .fields-table th {
             background-color: #e9ecef;
-            white-space: nowrap; /* Ngăn wrap text trong header */
+            white-space: nowrap;
             padding: 0.5rem;
         }
         .fields-scroll {
-            overflow-x: auto; /* Scroll ngang */
-            overflow-y: auto; /* Scroll dọc */
-            max-height: 200px; /* Chiều cao tối đa */
+            overflow-x: auto;
+            overflow-y: auto;
+            max-height: 200px;
             margin-bottom: 1rem;
         }
         .variables-list {
@@ -122,8 +131,8 @@
             padding-left: 1rem;
         }
         .variables-scroll {
-            overflow-y: auto; /* Scroll dọc */
-            max-height: 200px; /* Chiều cao tối đa */
+            overflow-y: auto;
+            max-height: 200px;
             margin-bottom: 1rem;
         }
         .field-section, .variable-section {
@@ -133,7 +142,6 @@
             border-radius: 0.25rem;
             background-color: #fff;
         }
-        /* Tùy chỉnh thanh cuộn (tùy chọn) */
         .fields-scroll::-webkit-scrollbar,
         .variables-scroll::-webkit-scrollbar {
             width: 8px;
@@ -147,6 +155,15 @@
         .fields-scroll::-webkit-scrollbar-track,
         .variables-scroll::-webkit-scrollbar-track {
             background-color: #f1f1f1;
+        }
+        .sheet-list.hidden,
+        .doc-list.hidden {
+            display: none;
+        }
+        .excel-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
         }
     </style>
 </head>
@@ -178,8 +195,13 @@
                                 <li class="list-group-item">
                                     <div class="excel-item">
                                         <div>
-                                            <strong>{{ $file['name'] }}</strong>
-                                            <ul class="sheet-list">
+                                            <div class="excel-header">
+                                                <button type="button" class="toggle-btn" data-target="sheet-list-{{ $fileIndex }}">
+                                                    <i class="bi bi-chevron-down"></i>
+                                                </button>
+                                                <strong>{{ $file['name'] }}</strong>
+                                            </div>
+                                            <ul class="sheet-list hidden" id="sheet-list-{{ $fileIndex }}">
                                                 @foreach ($file['sheets'] as $sheetIndex => $sheetName)
                                                     <li class="sheet-item">
                                                         <div class="sheet-actions">
@@ -256,8 +278,13 @@
 
                 @if (!empty($docFiles))
                     <div class="list-section">
-                        <h3 class="section-title">Danh Sách Doc</h3>
-                        <ul class="list-group">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h3 class="section-title">Danh Sách Doc</h3>
+                            <button type="button" class="toggle-btn" data-target="doc-list">
+                                <i class="bi bi-chevron-down"></i>
+                            </button>
+                        </div>
+                        <ul class="list-group doc-list hidden" id="doc-list">
                             @foreach ($docFiles as $docIndex => $doc)
                                 <li class="list-group-item">
                                     <div class="doc-item">
@@ -275,7 +302,7 @@
                                         <form action="{{ route('doc.removeDoc') }}" method="POST" class="delete-form">
                                             @csrf
                                             <input type="hidden" name="doc_index" value="{{ $docIndex }}">
-                                            <button type="submit" class="btn btn-danger btn-sm">Xóa Doc</button>
+                                            <button type="submit" class="btn btn-danger btn-sm">X</button>
                                         </form>
                                     </div>
                                 </li>
@@ -286,9 +313,9 @@
                         @if (session('doc_variables'))
                             @foreach (session('doc_variables') as $dIndex => $docData)
                                 <div class="variable-section">
-                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="d-flex">
                                         <h4 class="section-title">Biến {{ $docData['doc_name'] }}</h4>
-                                        <form action="{{ route('doc.removeVariables', $dIndex) }}" method="GET">
+                                        <form action="{{ route('doc.removeVariables', $dIndex) }}" method="GET" class="ms-auto">
                                             <button type="submit" class="btn btn-danger btn-sm">Xóa danh sách này</button>
                                         </form>
                                     </div>
@@ -377,5 +404,42 @@
             </div>
         @endif
     </div>
+
+    <script>
+        // Xử lý toggle ẩn/hiện danh sách sheet và danh sách Doc
+        document.querySelectorAll('.toggle-btn').forEach(button => {
+            const targetId = button.getAttribute('data-target');
+            const target = document.getElementById(targetId);
+            const icon = button.querySelector('i');
+
+            // Khôi phục trạng thái từ localStorage
+            const isExpanded = localStorage.getItem(`toggle-${targetId}`) === 'true';
+            if (isExpanded) {
+                target.classList.remove('hidden');
+                icon.classList.remove('bi-chevron-down');
+                icon.classList.add('bi-chevron-up');
+            } else {
+                target.classList.add('hidden');
+                icon.classList.remove('bi-chevron-up');
+                icon.classList.add('bi-chevron-down');
+            }
+
+            // Xử lý toggle
+            button.addEventListener('click', () => {
+                const isHidden = target.classList.contains('hidden');
+                if (isHidden) {
+                    target.classList.remove('hidden');
+                    icon.classList.remove('bi-chevron-down');
+                    icon.classList.add('bi-chevron-up');
+                    localStorage.setItem(`toggle-${targetId}`, 'true');
+                } else {
+                    target.classList.add('hidden');
+                    icon.classList.remove('bi-chevron-up');
+                    icon.classList.add('bi-chevron-down');
+                    localStorage.setItem(`toggle-${targetId}`, 'false');
+                }
+            });
+        });
+    </script>
 </body>
 </html>
